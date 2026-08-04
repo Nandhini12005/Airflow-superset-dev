@@ -60,6 +60,7 @@ x-airflow-common:
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
     AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql+psycopg2://airflow:airflow@postgres/airflow
     AIRFLOW__CELERY__BROKER_URL: redis://:@redis:6379/0
+    AIRFLOW_CONN_WAREHOUSE: postgresql+psycopg2://airflow:airflow@postgres:5432/warehouse
     AIRFLOW__CORE__FERNET_KEY: ${FERNET_KEY}
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
     AIRFLOW__CORE__LOAD_EXAMPLES: 'true'
@@ -80,6 +81,7 @@ x-airflow-common:
     - ${AIRFLOW_PROJ_DIR:-.}/dags:/opt/airflow/dags
     - ${AIRFLOW_PROJ_DIR:-.}/logs:/opt/airflow/logs
     - ${AIRFLOW_PROJ_DIR:-.}/config:/opt/airflow/config
+    - ${AIRFLOW_PROJ_DIR:-.}/data:/opt/airflow/data
     - ${AIRFLOW_PROJ_DIR:-.}/plugins:/opt/airflow/plugins
   user: "${AIRFLOW_UID:-50000}:0"
   depends_on:
@@ -88,6 +90,8 @@ x-airflow-common:
       condition: service_healthy
     postgres:
       condition: service_healthy
+    warehouse-init:
+      condition: service_completed_successfully
 
 services:
   postgres:
@@ -105,6 +109,25 @@ services:
       start_period: 5s
     restart: always
 
+  warehouse-init:
+    image: postgres:16
+    environment:
+      PGPASSWORD: airflow
+    volumes:
+      - ./dags/sql:/sql:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command:
+      - bash
+      - -ec
+      - |
+        if ! psql -h postgres -U airflow -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='warehouse'" | grep -q 1; then
+          psql -h postgres -U airflow -d postgres -c "CREATE DATABASE warehouse"
+        fi
+        psql -h postgres -U airflow -d warehouse -f /sql/warehouse_schema.sql
+    restart: "no"
+
   redis:
     # Redis is limited to 7.2-bookworm due to licencing change
     # https://redis.io/blog/redis-adopts-dual-source-available-licensing/
@@ -117,6 +140,48 @@ services:
       timeout: 30s
       retries: 50
       start_period: 30s
+    restart: always
+
+  superset-init:
+    image: apache/superset:4.1.1
+    environment:
+      SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY:-superset_dev_secret}
+    volumes:
+      - superset-home:/app/superset_home
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        pip install --no-cache-dir "psycopg2-binary>=2.9"
+        superset db upgrade
+        superset fab create-admin \
+          --username ${SUPERSET_ADMIN_USERNAME:-admin} \
+          --firstname Superset \
+          --lastname Admin \
+          --email ${SUPERSET_ADMIN_EMAIL:-admin@example.com} \
+          --password ${SUPERSET_ADMIN_PASSWORD:-admin} || true
+        superset init
+    restart: "no"
+
+  superset:
+    image: apache/superset:4.1.1
+    environment:
+      SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY:-superset_dev_secret}
+    volumes:
+      - superset-home:/app/superset_home
+    ports:
+      - "8088:8088"
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        pip install --no-cache-dir "psycopg2-binary>=2.9"
+        superset run -h 0.0.0.0 -p 8088 --with-threads --reload
+    depends_on:
+      warehouse-init:
+        condition: service_completed_successfully
+      superset-init:
+        condition: service_completed_successfully
     restart: always
 
   airflow-apiserver:
@@ -335,3 +400,4 @@ services:
 
 volumes:
   postgres-db-volume:
+  superset-home:
