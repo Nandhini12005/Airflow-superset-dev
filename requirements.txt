@@ -1,0 +1,4 @@
+# Day 2 Python dependencies (installed into the Airflow images).
+apache-airflow-providers-postgres>=5.10
+pandas>=2.1
+psycopg2-binary>=2.9
