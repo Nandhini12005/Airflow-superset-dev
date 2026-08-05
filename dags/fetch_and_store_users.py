@@ -4,7 +4,7 @@ import requests
 from airflow.sdk import dag, task
 from sqlalchemy.orm import sessionmaker
 
-from models.user_model import Base, User, get_db_engine
+from model.user_model import Base, User, get_db_engine
 
 
 # ==========================
