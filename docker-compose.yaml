@@ -125,7 +125,11 @@ services:
         if ! psql -h postgres -U airflow -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='warehouse'" | grep -q 1; then
           psql -h postgres -U airflow -d postgres -c "CREATE DATABASE warehouse"
         fi
-        psql -h postgres -U airflow -d warehouse -f /sql/warehouse_schema.sql
+        if [ -f /sql/warehouse_schema.sql ]; then
+          psql -h postgres -U airflow -d warehouse -f /sql/warehouse_schema.sql
+        else
+          psql -h postgres -U airflow -d warehouse -c "CREATE TABLE IF NOT EXISTS public.example_table (id SERIAL PRIMARY KEY, created_at TIMESTAMP WITH TIME ZONE DEFAULT now(), name TEXT);"
+        fi
     restart: "no"
 
   redis:

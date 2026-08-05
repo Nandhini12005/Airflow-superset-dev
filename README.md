@@ -31,7 +31,7 @@ docker compose build
 2. Start the environment in the background:
 
 ```bash
-docker compose up -d
+docker compose up 
 ```
 
 3. View running services:
