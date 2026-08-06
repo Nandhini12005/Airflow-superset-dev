@@ -62,3 +62,5 @@ tmp/
 
 # Node
 node_modules/
+
+data

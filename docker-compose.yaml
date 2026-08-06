@@ -14,21 +14,31 @@ services:
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "superset"]
+      test: ["CMD-SHELL", "pg_isready -U superset -d superset"]
       interval: 5s
-      retries: 5
-      start_period: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    stop_grace_period: 60s
     restart: always
-
   # This automation container runs once on startup, sets everything up, and exits cleanly.
   superset-init:
     image: *superset-image
     environment:
       SUPERSET_SECRET_KEY: superset_dev_secret
-      SQLALCHEMY_DATABASE_URI: postgresql+psycopg2://superset:superset@postgres:5432/superset
+      SUPERSET_CONFIG_PATH: /workspace/superset_config.py
+      SUPERSET__SQLALCHEMY_DATABASE_URI: postgresql+psycopg2://superset:superset@postgres:5432/superset
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: superset
+      POSTGRES_USER: superset
+      POSTGRES_PASSWORD: superset
     depends_on:
       postgres:
         condition: service_healthy
+    working_dir: /workspace
+    volumes:
+      - ./:/workspace
     command:
       - /bin/sh
       - -ec
@@ -46,9 +56,17 @@ services:
           --lastname Admin \
           --email admin@example.com \
           --password admin || true
+
+        echo "Ensuring admin password is set..."
+        superset fab reset-password \
+          --username admin \
+          --password admin
           
         echo "Initializing roles and permissions..."
         superset init
+
+        echo "Loading CSV data into Postgres..."
+        python main.py
         
         echo "Initialization complete!"
     restart: "no"
@@ -57,13 +75,16 @@ services:
     image: *superset-image
     environment:
       SUPERSET_SECRET_KEY: superset_dev_secret
-      SQLALCHEMY_DATABASE_URI: postgresql+psycopg2://superset:superset@postgres:5432/superset
+      SUPERSET_CONFIG_PATH: /workspace/superset_config.py
+      SUPERSET__SQLALCHEMY_DATABASE_URI: postgresql+psycopg2://superset:superset@postgres:5432/superset
     ports:
       - "8088:8088"
     depends_on:
       # The web server will NOT start until the init container successfully finishes
       superset-init:
         condition: service_completed_successfully
+    volumes:
+      - ./:/workspace
     command:
       - /bin/sh
       - -ec
